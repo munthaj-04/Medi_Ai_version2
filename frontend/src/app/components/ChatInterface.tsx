@@ -79,9 +79,40 @@ function PainBadge({ scale }: { scale: number }) {
     return (
         <motion.span initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}
             className={`inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-[11px] font-bold border ${s.ring} ${s.color} bg-black/40`}>
-            <span className={`w-1.5 h-1.5 rounded-full bg-current ${scale >= 4 ? 'animate-pulse' : ''}`} />
+            <span className={`w-1.5 h-1.5 rounded-full bg-current ${scale >= 3 ? 'animate-pulse' : ''}`} />
             PAIN {scale}/5 · {s.label}
         </motion.span>
+    );
+}
+
+/* ── Manual Pain Selector ─────────────────────────── */
+function ManualPainSelector({ onSelect, selected }: { onSelect: (val: number) => void, selected: number }) {
+    return (
+        <div className="flex flex-col gap-3 my-4 p-5 glass-card neon-border rounded-2xl max-w-sm">
+            <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle size={14} className="text-blue-400" />
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Select your pain level</span>
+            </div>
+            <div className="flex justify-between gap-2">
+                {[1, 2, 3, 4, 5].map((val) => {
+                    const s = SEVERITY[val];
+                    const isSelected = selected === val;
+                    return (
+                        <button
+                            key={val}
+                            onClick={() => onSelect(val)}
+                            className={`flex-1 flex flex-col items-center gap-1 py-3 px-1 rounded-xl border transition-all ${isSelected
+                                ? `${s.ring} bg-white/[0.08] scale-105 shadow-lg ${s.glow}`
+                                : "border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.05]"
+                                }`}
+                        >
+                            <span className={`text-sm font-bold ${isSelected ? s.color : 'text-slate-500'}`}>{val}</span>
+                            <span className="text-[8px] text-slate-600 uppercase font-black">{s.label.slice(0, 3)}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
@@ -91,10 +122,24 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [streamText, setStreamText] = useState("");
+    const [hasError, setHasError] = useState(false);
+    const [isPremium, setIsPremium] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+
+    const messagesEndRef = useRef<HTMLDivElement>(null);
     const [livePain, setLivePain] = useState(0);
     const [pendingPain, setPendingPain] = useState(0);
-    const [offeredBooking, setOfferedBooking] = useState(false);
+    const [showPainSelector, setShowPainSelector] = useState(false);
+    const [hasSelectedScale, setHasSelectedScale] = useState(false);
+    const [lastUrgency, setLastUrgency] = useState<string>("🟢 LOW");
+
+    // Auto-scroll to bottom on new messages (using native window scroll)
+    useEffect(() => {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }, [messages, streamText]);
+    const offeredBookingRef = useRef(false);
     const [connected, setConnected] = useState(true);
+    const [sessionId] = useState(() => "sess_" + Math.random().toString(36).substr(2, 9));
     const endRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -106,14 +151,16 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
         const newMsgs = [...messages, { role: "user", content: text }];
         setMessages(newMsgs);
         setInput("");
+        setIsListening(false);
+        setHasError(false);
         setIsLoading(true);
         setStreamText("");
 
         try {
-            const res = await fetch("http://localhost:8000/chat", {
+            const res = await fetch("http://127.0.0.1:8000/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: newMsgs, patient_name: "Patient" }),
+                body: JSON.stringify({ messages: newMsgs, patient_name: "Patient", session_id: sessionId }),
                 signal: AbortSignal.timeout(60000),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -124,26 +171,30 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
             let triggerBooking = false;
             let bookingPain = 0;
 
-            if (data.pain_scale >= 4) {
-                finalReply += "\n\n⚠️ Would you like me to book an emergency appointment at a nearby hospital?";
-                setOfferedBooking(true);
-                setPendingPain(data.pain_scale);
-                setLivePain(data.pain_scale);
-                setPainScale(data.pain_scale);
-            } else if (offeredBooking && (text.toLowerCase().match(/\b(yes|yeah|yep|ok|okay|sure|book|please)\b/))) {
-                triggerBooking = true;
-                bookingPain = pendingPain;
-                finalReply = "Opening hospital booking interface in a new tab...";
-                setOfferedBooking(false);
-            } else if (text.toLowerCase().includes("book") || reply.toLowerCase().includes("book an appointment")) {
-                triggerBooking = true;
-                bookingPain = pendingPain > 0 ? pendingPain : 0;
-                finalReply = "Opening hospital booking interface in a new tab...";
-                setOfferedBooking(false);
+            const userSaidYes = offeredBookingRef.current && (text.toLowerCase().match(/\b(yes|yea|yeah|yep|yup|ok|okay|sure|book|please|do it)\b/));
+            const userInitiatedBooking = text.toLowerCase().includes("book") || reply.toLowerCase().includes("book an appointment");
+
+            if (userSaidYes || userInitiatedBooking) {
+                if (!hasSelectedScale) {
+                    setShowPainSelector(true);
+                    setPendingPain(data.pain_scale > 0 ? data.pain_scale : 3);
+                    finalReply = "Before matching you with a specialist, please select your current pain level (1-5) for accurate triage:";
+                    offeredBookingRef.current = false;
+                } else {
+                    triggerBooking = true;
+                    bookingPain = livePain || pendingPain || 0;
+                    finalReply = "Opening hospital booking interface in a new tab...";
+                    offeredBookingRef.current = false;
+                }
+            } else if ((data.pain_scale > 0 || (data.urgency && data.urgency !== "🟢 LOW")) && !hasSelectedScale) {
+                setShowPainSelector(true);
+                setPendingPain(data.pain_scale > 0 ? data.pain_scale : 3);
             } else if (data.pain_scale > 0) {
                 setLivePain(data.pain_scale);
                 setPainScale(data.pain_scale);
             }
+
+            if (data.urgency) setLastUrgency(data.urgency);
 
             // Set reply instantly instead of building it artificially
             setIsLoading(false);
@@ -165,12 +216,43 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
             }]);
             setConnected(false);
         }
-    }, [input, isLoading, messages, setMessages, setPainScale, setActions]);
+    }, [input, isLoading, messages, setMessages, setPainScale, setActions, sessionId, pendingPain, hasSelectedScale, showPainSelector, livePain, lastUrgency]);
+
+    const toggleListening = () => {
+        if (isListening) {
+            setIsListening(false);
+            return;
+        }
+
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Voice input is not supported in this browser.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = true;
+        recognition.continuous = false;
+
+        recognition.onstart = () => setIsListening(true);
+        recognition.onresult = (event: any) => {
+            const transcript = Array.from(event.results)
+                .map((result: any) => result[0])
+                .map((result: any) => result.transcript)
+                .join("");
+            setInput(transcript);
+        };
+        recognition.onerror = () => setIsListening(false);
+        recognition.onend = () => setIsListening(false);
+
+        recognition.start();
+    };
 
     const isEmpty = messages.length === 0 && !streamText;
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col relative w-full">
 
             {/* ── Disconnected Banner ── */}
             <AnimatePresence>
@@ -184,12 +266,14 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
             </AnimatePresence>
 
             {/* ── Message Area ── */}
-            <div className="flex-1 overflow-y-auto no-scrollbar px-5 py-4 space-y-4">
+            <div
+                className="flex-1 px-5 py-10 space-y-8"
+            >
 
                 {/* Welcome Screen */}
                 {isEmpty && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                        className="flex flex-col items-center justify-center h-full gap-6 pb-4">
+                        className="flex flex-col items-center justify-center min-h-full gap-8 pb-10">
 
                         {/* Animated logo */}
                         <div className="relative mt-4">
@@ -255,8 +339,37 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
                 <AnimatePresence initial={false}>
                     {messages.map((m: any, i: number) => {
                         const isUser = m.role === "user";
+                        const isPaywall = m.content?.includes("[PAYWALL_TRIGGERED]");
+                        const content = m.content?.replace("[PAYWALL_TRIGGERED]", "").trim();
                         const painMatch = m.content?.match(/PAIN\s*SCALE:\s*(\d)/i);
                         const pain = painMatch ? parseInt(painMatch[1]) : 0;
+
+                        // Paywall Rendering
+                        if (isPaywall) {
+                            return (
+                                <motion.div key={i} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="flex justify-center my-4">
+                                    <div className="bg-gradient-to-br from-[#0f172a] to-[#020817] p-6 rounded-2xl border border-blue-500/30 max-w-sm w-full shadow-2xl shadow-blue-500/10 relative overflow-hidden text-center">
+                                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500" />
+                                        <div className="w-14 h-14 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto mb-4 border border-blue-500/20">
+                                            <Shield size={24} className="text-blue-400" />
+                                        </div>
+                                        <h3 className="text-lg font-bold text-white mb-2">Upgrade to MediAI Plus</h3>
+                                        <p className="text-[13px] text-slate-400 leading-relaxed mb-6">
+                                            {content || "You've reached your free message limit. Get unlimited consultations, PDF reports, and priority routing."}
+                                        </p>
+                                        <div className="space-y-3">
+                                            <button className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-lg shadow-blue-500/20 hover:opacity-90 active:scale-[0.98] transition-all">
+                                                Upgrade Now (₹499/mo)
+                                            </button>
+                                            <button onClick={() => router.push(`/booking?painScale=${livePain || 0}&symptoms=Limit Reached`)} className="w-full py-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-slate-300 font-bold text-sm hover:bg-white/[0.06] active:scale-[0.98] transition-all">
+                                                Book Emergency Doctor
+                                            </button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        }
+
                         return (
                             <motion.div key={i}
                                 initial={{ opacity: 0, y: 14, scale: 0.97 }}
@@ -280,15 +393,58 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
                                             ? "bg-gradient-to-br from-violet-600/90 to-purple-800/80 text-white border border-white/[0.08] rounded-2xl rounded-tr-sm"
                                             : "glass-card text-slate-100 rounded-2xl rounded-tl-sm ai-message whitespace-pre-wrap"
                                             }`}>
-                                            {m.content}
+                                            {content}
                                         </div>
-                                        {!isUser && pain > 0 && <PainBadge scale={pain} />}
+                                        {!isUser && pain > 0 && hasSelectedScale && <PainBadge scale={pain} />}
                                     </div>
                                 </div>
                             </motion.div>
                         );
                     })}
                 </AnimatePresence>
+
+                {/* Manual Triage Step */}
+                {showPainSelector && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+                        <div className="flex flex-col gap-2.5 max-w-[86%] items-start ml-10">
+                            <ManualPainSelector
+                                selected={livePain}
+                                onSelect={(val) => {
+                                    const realVal = val;
+                                    let valToUse = val;
+                                    let conflictWarning = "";
+
+                                    // CLINICAL CONFLICT DETECTION: e.g. Chest Pain + Scale 1
+                                    const isCriticalSymptom = lastUrgency.includes("HIGH") || lastUrgency.includes("EMERGENCY");
+                                    if (realVal <= 2 && isCriticalSymptom) {
+                                        valToUse = 3; // Use Moderate internally to trigger booking
+                                        conflictWarning = "⚠️ Clinical Note: Even if your current pain feels mild, your symptoms carry a high medical risk. \n\n";
+                                    }
+
+                                    setLivePain(realVal); // Keep UI honest to user click
+                                    setPainScale(valToUse); // System uses the safer value
+                                    setHasSelectedScale(true);
+                                    setShowPainSelector(false);
+
+                                    const label = SEVERITY[realVal]?.label.toLowerCase() || "mild";
+
+                                    if (valToUse >= 3 || isCriticalSymptom) {
+                                        setMessages((prev: any) => [...prev, {
+                                            role: "assistant",
+                                            content: `${conflictWarning}Understood. Based on the risk level associated with these symptoms, I strongly recommend a professional assessment. \n\nWould you like me to book an appointment at a nearby hospital?`
+                                        }]);
+                                        offeredBookingRef.current = true;
+                                    } else {
+                                        setMessages((prev: any) => [...prev, {
+                                            role: "assistant",
+                                            content: `Understood. Since your pain level is ${label}, here is a recommended **Home Care Plan**:\n\n• Rest in a comfortable position\n• Stay well hydrated\n• Monitor for new symptoms like dizziness or fever\n\nIf your condition worsens, seek medical attention immediately.`
+                                        }]);
+                                    }
+                                }}
+                            />
+                        </div>
+                    </motion.div>
+                )}
 
                 {/* Streaming bubble */}
                 {streamText && (
@@ -312,17 +468,17 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
             </div>
 
             {/* ── Input Bar ── */}
-            <div className="px-4 pb-4 pt-2 border-t border-white/[0.04] bg-black/50 backdrop-blur-2xl">
+            <div className="sticky bottom-0 z-30 px-6 pb-6 pt-4 border-t border-white/[0.04] bg-black/80 backdrop-blur-3xl">
 
                 {/* Emergency alert */}
                 <AnimatePresence>
-                    {livePain >= 4 && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                    {(livePain >= 3 || lastUrgency.includes("HIGH") || lastUrgency.includes("EMERGENCY")) && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="mb-3 px-4 py-2.5 rounded-xl bg-red-500/8 border border-red-500/20 flex items-center gap-2 text-xs text-red-400 overflow-hidden">
-                            <AlertTriangle size={12} className="animate-pulse flex-shrink-0" />
-                            <strong>EMERGENCY DETECTED</strong>
-                            <span className="opacity-60 ml-1">— hospital secured automatically</span>
+                            className="mb-3 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2 text-xs text-red-100 overflow-hidden">
+                            <AlertTriangle size={12} className="animate-pulse text-red-500 flex-shrink-0" />
+                            <strong>CLINICAL RISK DETECTED</strong>
+                            <span className="opacity-60 ml-1">— priority triage enabled</span>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -338,8 +494,17 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
                             placeholder="Describe your symptoms in any language…"
                             className="w-full glass-input text-slate-100 rounded-xl py-3.5 pl-4 pr-24 text-[13.5px] placeholder:text-slate-600"
                         />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-700 text-[10px] pointer-events-none">
-                            <Globe size={10} /><span>EN · हि · తె</span>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                            <div className="flex items-center gap-1 text-slate-700 text-[10px] pointer-events-none">
+                                <Globe size={10} /><span>EN · हि · తె</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={toggleListening}
+                                className={`flex items-center justify-center w-7 h-7 rounded-full transition-all ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse' : 'hover:bg-slate-800 text-slate-400'}`}
+                            >
+                                {isListening ? "🔴" : "🎤"}
+                            </button>
                         </div>
                     </div>
                     <motion.button
@@ -352,7 +517,7 @@ export default function ChatInterface({ messages, setMessages, setPainScale, set
                             : <Send size={16} className="translate-x-[1px]" />}
                     </motion.button>
                 </div>
-                <p className="text-center text-[10px] text-slate-700 mt-2">
+                <p className="text-center text-[10px] text-slate-700 mt-3 font-medium opacity-40">
                     MediAI may make mistakes · Always follow professional medical advice
                 </p>
             </div>

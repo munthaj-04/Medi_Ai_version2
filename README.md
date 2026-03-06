@@ -79,17 +79,31 @@ Here is exactly what happens from the moment a user types a message to the momen
 ## 💻 Running the Project Locally
 
 ### 1. Setup the Backend
-Navigate to the backend directory and install the requirements:
-```bash
+Navigate to the backend directory, create a virtual environment, and install dependencies:
+
+**Windows (PowerShell):**
+```powershell
 cd backend
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the `backend/` folder and add your API keys:
+**macOS/Linux:**
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create a `.env` file in the `backend/` folder and add your API keys (get these from the platform dashboards):
 ```env
-GROQ_API_KEY=your_groq_key
-OPENROUTER_API_KEY=your_openrouter_key
-MISTRAL_API_KEY=your_mistral_key
+STRIPE_SECRET_KEY=sk_test_...
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=...
+GROQ_API_KEY=gsk_...
 ```
 
 Start the FastAPI server:
@@ -109,5 +123,11 @@ npm run dev
 
 ---
 
-## 🏆 Hackathon Value Proposition
+## 🏆 Hackathon Value Proposition & Monetization
 MediAI bridges the gap between conversational AI and actionable medical routing. By intercepting critical physical symptoms and automating the hospital intake process, MediAI limits the time a patient spends waiting during the "golden hour" of a medical emergency.
+
+### Dual Revenue Model (The B2C + B2B Strategy)
+1. **B2C (Patient Side):** A freemium chatbot model. Users get 5 free deep-diagnosis messages before needing a "MediAI Plus" subscription. For emergencies, the app charges a ₹50 convenience fee at the Stripe checkout step to secure a priority hospital slot.
+2. **B2B (Hospital Side):** The **Provider SaaS Dashboard**. Hospitals pay a monthly licensing fee to log into `http://localhost:3000/provider` and receive real-time, AI-prioritized intake feeds of incoming patients, letting them prepare trauma bays *before* the patient arrives. 
+
+*(Check out [dashboard.md](./dashboard.md) or visit `/provider` to see the live hospital intake UI).*

@@ -28,6 +28,7 @@ class Appointment(Base):
     symptoms = Column(Text, nullable=True)          # comma-separated symptoms
     diagnosis = Column(String(255), nullable=True)
     pain_scale = Column(Integer, nullable=True)
+    recommended_specialist = Column(String(255), nullable=True)
     status = Column(
         String(20),
         nullable=False,
@@ -48,6 +49,7 @@ class Appointment(Base):
             "symptoms": self.symptoms,
             "diagnosis": self.diagnosis,
             "pain_scale": self.pain_scale,
+            "recommended_specialist": self.recommended_specialist,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
@@ -62,6 +64,8 @@ class PatientSession(Base):
     symptoms_reported = Column(Text, nullable=True)
     final_diagnosis = Column(String(255), nullable=True)
     pain_scale = Column(Integer, nullable=True)
+    message_count = Column(Integer, default=0)
+    is_premium = Column(Integer, default=0)  # Use Integer as boolean fallback for SQLite compatibility
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):

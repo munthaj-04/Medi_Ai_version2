@@ -38,8 +38,7 @@ body {
   font-family: 'Inter', 'Outfit', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
-  height: 100vh;
+  min-height: 100vh;
 }
 
 /* ─── Glass Layers ───────────────────────────────────────────────────── */
@@ -74,23 +73,29 @@ body {
   outline: none;
 }
 
-/* ─── Scrollbar ─────────────────────────────────────────────────────── */
-.no-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+/* ─── Sleek Custom Scrollbar ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
 }
 
-.no-scrollbar::-webkit-scrollbar {
-  width: 3px;
-}
-
-.no-scrollbar::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.no-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.07);
-  border-radius: 99px;
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
 /* ─── ECG / Heartbeat ───────────────────────────────────────────────── */
@@ -307,4 +312,24 @@ body {
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 0.85em;
+}
+
+/* ─── Chat Fade Masks ─────────────────────────────────────────────── */
+.chat-mask-top {
+  mask-image: linear-gradient(to bottom, transparent, black 15%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%);
+}
+
+.chat-mask-bottom {
+  mask-image: linear-gradient(to top, transparent, black 15%);
+  -webkit-mask-image: linear-gradient(to top, transparent, black 15%);
+}
+
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Snap to bottom behavior */
+.scroll-snap-bottom {
+  scroll-snap-align: end;
 }

@@ -21,6 +21,8 @@ from rag import rag_engine
 from mcp_tools import MCP_TOOLS
 from database import get_db, init_db
 from models import Appointment, PatientSession
+from payments import router as payments_router
+from sms import router as sms_router
 
 load_dotenv()
 
@@ -52,6 +54,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(payments_router)
+app.include_router(sms_router)
 
 # ─── LLM Client Setup (OpenAI-compatible) ────────────────────────────────────
 if DEEPSEEK_API_KEY:
@@ -205,10 +210,21 @@ Keep responses empathetic, clear, and professional in the detected language."""
 
 # ─── Pain Scale Extractor ─────────────────────────────────────────────────────
 def extract_pain_scale(text: str) -> int:
+    import re
+    # Look for patterns like "Pain Scale: 4", "Pain: 3", "**PAIN SCALE** 5/5", "3/5 scale"
+    patterns = [
+        r'PAIN SCALE[:\s\*]*(\d)', 
+        r'PAIN[:\s\*]*(\d)',
+        r'(\d)/5'
+    ]
+    
     upper = text.upper()
-    for i in range(5, 0, -1):
-        if f"PAIN SCALE: {i}" in upper or f"PAIN SCALE:{i}" in upper:
-            return i
+    for pattern in patterns:
+        match = re.search(pattern, upper)
+        if match:
+            val = int(match.group(1))
+            if 1 <= val <= 5:
+                return val
     return 0
 
 
@@ -253,14 +269,57 @@ def read_root():
     return {"status": "ok", "message": "MediAI LangChain API v2.0 running", "db": "PostgreSQL"}
 
 
-@app.get("/appointments")
-def get_appointments(db: Session = Depends(get_db)):
-    """Retrieve all saved appointments from PostgreSQL."""
+class AppointmentCreate(BaseModel):
+    hospital_id: str
+    hospital_name: str
+    patient_name: str
+    time: str
+    symptoms: str = ""
+    diagnosis: str = ""
+    pain_scale: int = 0
+    recommended_specialist: str = ""
+    slot: str = ""
+
+@app.post("/api/appointments")
+def create_appointment(data: AppointmentCreate, db: Session = Depends(get_db)):
+    """Creates a permanent appointment after Stripe success or Emergency flow"""
+    # Use 'MED-' for normal, 'EMG-' for emergency
+    prefix = "EMG-" if data.pain_scale >= 4 else "MED-"
+    booking_id = f"{prefix}{random.randint(10000, 99999)}"
+    appointment = Appointment(
+        booking_id=booking_id,
+        patient_name=data.patient_name,
+        hospital_id=data.hospital_id,
+        hospital_name=data.hospital_name,
+        appointment_time=data.slot or data.time or ("Immediate Dispatch" if data.pain_scale >= 4 else "TBD"),
+        appointment_date=datetime.datetime.now().strftime("%Y-%m-%d"),
+        symptoms=data.symptoms,
+        diagnosis=data.diagnosis,
+        pain_scale=data.pain_scale,
+        recommended_specialist=data.recommended_specialist,
+        status="emergency_dispatched" if data.pain_scale >= 4 else "confirmed"
+    )
     try:
-        appointments = db.query(Appointment).order_by(Appointment.created_at.desc()).all()
+        db.add(appointment)
+        db.commit()
+        db.refresh(appointment)
+        return {"status": "success", "booking_id": booking_id, "data": appointment.to_dict()}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/appointments")
+def get_appointments(hospital_id: str = None, db: Session = Depends(get_db)):
+    """Retrieve appointments, optionally filtered by hospital_id for the SaaS dashboard."""
+    try:
+        query = db.query(Appointment)
+        if hospital_id:
+            query = query.filter(Appointment.hospital_id == hospital_id)
+            
+        appointments = query.order_by(Appointment.created_at.desc()).all()
         return {"appointments": [a.to_dict() for a in appointments]}
     except Exception as e:
-        return {"appointments": [], "note": str(e)}
+        return {"appointments": [], "error": str(e)}
 
 
 @app.post("/chat")
@@ -268,10 +327,27 @@ def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     try:
         from mediai_router import chat as mediai_chat
         
-        # Get latest user message
         latest_user_msg = next(
             (msg.content for msg in reversed(request.messages) if msg.role == "user"), ""
         )
+        
+        # Enforce Freemium logic
+        session_id = request.session_id or "default-session"
+        patient_session = db.query(PatientSession).filter(PatientSession.session_id == session_id).first()
+        if not patient_session:
+            patient_session = PatientSession(session_id=session_id)
+            db.add(patient_session)
+            db.commit()
+            
+        if patient_session.message_count >= 5 and not patient_session.is_premium:
+            return {
+                "reply": "You have reached the limit of free messages (5) on the Basic tier. Please upgrade to MediAI Plus to continue unlimited medical consulting, or securely book an emergency appointment now.\n\n[PAYWALL_TRIGGERED]", 
+                "pain_scale": 0, 
+                "actions": []
+            }
+            
+        patient_session.message_count += 1
+        db.commit()
         
         # Build history for router
         history = []

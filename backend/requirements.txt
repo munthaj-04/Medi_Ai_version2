@@ -6,3 +6,9 @@ pydantic
 python-dotenv
 requests
 openai
+groq
+google-generativeai
+mistralai
+stripe
+twilio
+sqlalchemy

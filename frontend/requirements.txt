@@ -1,0 +1,34 @@
+# ==========================================
+# MediAI - Full Stack Installation Guide
+# ==========================================
+
+# 1. SETUP BACKEND (Python)
+# Open PowerShell or Terminal and run the following:
+
+cd backend
+
+# Create and activate a virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1   # If on Windows
+# source venv/bin/activate    # If on Mac/Linux
+
+# Install the Python dependencies
+pip install -r requirements.txt
+
+# Run the backend server
+python start.py
+
+
+
+# 2. SETUP FRONTEND (Node.js/Next.js)
+# Open a NEW PowerShell or Terminal window and run:
+
+cd frontend
+
+# Install all Node modules and libraries
+npm install
+
+# Start the frontend UI
+npm run dev
+
+# The project will now be live at http://localhost:3000 !

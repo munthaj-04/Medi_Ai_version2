@@ -19,7 +19,7 @@ export default function Home() {
   const isEmergency = painScale >= 4;
 
   return (
-    <main className="min-h-screen bg-black text-slate-100 flex flex-col font-sans overflow-hidden relative">
+    <main className="min-h-screen bg-black text-slate-100 flex flex-col font-sans relative">
 
       {/* ── Ambient Background Orbs ───────────────────────────── */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -35,7 +35,7 @@ export default function Home() {
       </div>
 
       {/* ── Top Nav Bar ───────────────────────────────────────── */}
-      <header className="relative z-20 flex items-center justify-between px-6 py-4 border-b border-white/[0.04] bg-black/80 backdrop-blur-2xl">
+      <header className="sticky top-0 z-20 flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/[0.04] bg-black/80 backdrop-blur-2xl">
         <div className="flex items-center gap-3.5">
           {/* Logo mark */}
           <div className="relative w-11 h-11">
@@ -95,15 +95,15 @@ export default function Home() {
       </header>
 
       {/* ── Main Content Area ──────────────────────────────────── */}
-      <div className="relative z-10 flex flex-1 overflow-hidden p-5">
+      <div className="relative z-10 flex flex-1 p-5">
         <AnimatePresence mode="wait">
           <motion.section
             key="chat"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
-            className="flex-1 flex flex-col min-h-0 rounded-3xl overflow-hidden border border-white/[0.06] relative max-w-5xl mx-auto w-full"
+            className="flex-1 flex flex-col rounded-3xl border border-white/[0.06] relative max-w-5xl mx-auto w-full shadow-2xl mb-24"
             style={{
               background: "linear-gradient(145deg, rgba(10,10,10,0.95) 0%, rgba(5,5,15,0.98) 100%)",
               boxShadow: "0 25px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)",
